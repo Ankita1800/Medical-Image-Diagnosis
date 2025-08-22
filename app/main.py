@@ -28,7 +28,7 @@ async def infer(
 		raise HTTPException(status_code=400, detail="file is required")
 
 	start = time.time()
-	logger.info("image_uploaded", extra={"filename": file.filename, "content_type": file.content_type})
+	logger.info("image_uploaded", extra={"file_name": file.filename, "content_type": file.content_type})
 
 	probabilities = {"normal": 0.12, "pneumonia": 0.7, "tb": 0.18}
 	inference_ms = int((time.time() - start) * 1000)
