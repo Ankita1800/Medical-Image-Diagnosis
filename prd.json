@@ -1,0 +1,332 @@
+{
+  "id": "prd-af7018a2-8888-4de3-b9e6-ba854896567d",
+  "version": "1.0.0",
+  "last_updated": "2025-08-22T04:09:13.280658",
+  "project": {
+    "name": "Medical Image Diagnosis – Chest X‑ray Pneumonia/TB Screening",
+    "summary": "An ML-powered assistive tool that flags likely pneumonia or pulmonary tuberculosis in adult chest X‑rays to support radiologists and clinicians. Not a medical device; for research and triage assistance.",
+    "owner": "Ankita (Product/ML)",
+    "status": "draft"
+  },
+  "business_goals": [
+    "Reduce average time-to-flag abnormal CXRs by 30% in pilot sites.",
+    "Improve triage precision/recall vs. baseline rule-based checks.",
+    "Demonstrate model + workflow integration for future regulatory-grade work."
+  ],
+  "personas": [
+    {
+      "name": "Dr. Rao, Radiologist",
+      "needs": [
+        "Quick prioritization of abnormal films in worklist.",
+        "Transparent reasoning: heatmaps, salient regions.",
+        "Low false negatives for critical findings."
+      ]
+    },
+    {
+      "name": "Priya, Junior Clinician (ER)",
+      "needs": [
+        "Simple flag: Normal vs. Abnormal (Pneumonia/TB likely).",
+        "Mobile/web access for on-call decisions.",
+        "Fast inference under low bandwidth."
+      ]
+    },
+    {
+      "name": "PACS Admin",
+      "needs": [
+        "Easy integration with DICOM/PACS.",
+        "Audit logs, uptime monitoring, and PII-safe handling."
+      ]
+    }
+  ],
+  "user_journeys": [
+    "Upload or receive CXR (DICOM/PNG). System de-identifies if needed.",
+    "Model infers class probabilities and generates Grad-CAM heatmap.",
+    "UI displays image, heatmap overlay, and labels with calibrated probabilities.",
+    "Clinician confirms/overrides and adds note; event logged for QA retraining."
+  ],
+  "in_scope": [
+    "Adult PA/AP chest X‑rays (single view).",
+    "Binary/ternary classification: Normal / Pneumonia-likely / TB-likely.",
+    "Explainability via Grad-CAM or equivalent saliency maps.",
+    "Web UI + simple REST API + batch CLI.",
+    "Edge-friendly export (ONNX/TensorRT) for optional offline use."
+  ],
+  "out_of_scope": [
+    "Pediatric images, lateral views, ICU portable CXRs in v1.",
+    "Regulatory approval (FDA/CE).",
+    "Non-thoracic modalities (CT/MRI/US)."
+  ],
+  "datasets": {
+    "primary": [
+      {
+        "name": "NIH ChestX-ray14",
+        "license": "CC BY 4.0",
+        "notes": "Label noise; requires cleaning."
+      },
+      {
+        "name": "CheXpert",
+        "license": "Research use",
+        "notes": "Uncertain labels; use U-Zero handling."
+      },
+      {
+        "name": "TBX11K / Shenzhen & Montgomery TB",
+        "license": "Research use",
+        "notes": "For TB positive samples."
+      }
+    ],
+    "governance": {
+      "pii_policy": "Store only de-identified images. Strip DICOM tags except essential technical metadata.",
+      "consent": "Use datasets with research/academic licenses; maintain data lineage.",
+      "bias_audit": "Track performance by sex, estimated age group, scanner type/view."
+    },
+    "splits": {
+      "patient_level_split": true,
+      "train": 0.7,
+      "val": 0.15,
+      "test": 0.15,
+      "external_validation": "Hold-out hospital B dataset if available"
+    }
+  },
+  "functional_requirements": {
+    "upload": [
+      "DICOM (.dcm), PNG, JPEG; max 50MB per study",
+      "Batch ZIP upload"
+    ],
+    "inference": [
+      "<1.0s GPU / <3.0s CPU per image target",
+      "Return class probabilities + heatmap"
+    ],
+    "explainability": [
+      "Grad-CAM on last conv layer; adjustable opacity overlay"
+    ],
+    "review_workflow": [
+      "Accept/override labels",
+      "Add clinical notes",
+      "Export PDF report"
+    ],
+    "api": [
+      "POST /v1/infer (image|dicom) -> {classes, probs, heatmap_url, version}",
+      "GET /v1/health -> {status, model_version}",
+      "GET /v1/metrics -> aggregate operational KPIs"
+    ]
+  },
+  "non_functional_requirements": {
+    "security": [
+      "Data at rest: AES-256; in transit: TLS 1.3",
+      "RBAC: Admin/Radiologist/Viewer",
+      "Audit logs retained for 12 months"
+    ],
+    "reliability": [
+      "99.5% uptime target in pilot",
+      "Graceful degradation to CPU path"
+    ],
+    "performance": [
+      "P95 latency < 2s (GPU), < 5s (CPU)",
+      "Throughput: 10 images/min/node (CPU), 60 images/min/GPU"
+    ],
+    "usability": [
+      "WCAG AA contrast",
+      "Keyboard shortcuts for reviewers"
+    ]
+  },
+  "model_design": {
+    "task": "Multi-class classification (Normal, Pneumonia, TB) + optional multilabel abnormality heads",
+    "backbones": [
+      "ResNet-50",
+      "EfficientNet-B3",
+      "ConvNeXt-T"
+    ],
+    "input": "512×512 grayscale, CLAHE normalization, lung field cropping (optional)",
+    "training": {
+      "loss": "Focal Loss (γ=2) or BCE with class weights",
+      "optimizer": "AdamW",
+      "lr_schedule": "OneCycle or cosine decay",
+      "augmentations": [
+        "Random resize/crop, horizontal flip (with view awareness)",
+        "Brightness/contrast jitter within radiologically safe bounds",
+        "CutMix/MixUp experiments"
+      ],
+      "epochs": 30,
+      "batch_size": 32
+    },
+    "explainability": [
+      "Grad-CAM / Grad-CAM++ with sanity checks (Adebayo)"
+    ],
+    "calibration": [
+      "Temperature scaling on validation set"
+    ],
+    "export": [
+      "ONNX opset 17",
+      "TorchScript",
+      "TensorRT FP16 (optional)"
+    ]
+  },
+  "evaluation": {
+    "primary_metrics": [
+      "AUROC per class",
+      "Sensitivity@95% specificity",
+      "F1 macro",
+      "AUPRC (positive classes)"
+    ],
+    "safety_metrics": [
+      "False negative rate for Pneumonia/TB",
+      "Calibration error (ECE/Brier)"
+    ],
+    "robustness_checks": [
+      "External validation",
+      "Brightness/noise stress tests",
+      "Scanner/view subgroup analysis"
+    ],
+    "human_factors": [
+      "Time-to-interpret delta with/without assist",
+      "Reader study for N=3 radiologists"
+    ]
+  },
+  "compliance_and_ethics": {
+    "medical_disclaimer": "Research tool. Not for primary diagnosis. Requires clinician oversight.",
+    "regulatory": "No claims implying diagnostic performance; avoid patient‑facing use in v1.",
+    "fairness": "Report disaggregated metrics; document dataset composition in model card.",
+    "privacy": "Follow HIPAA/GDPR principles where applicable; DICOM de-identification per PS3.15."
+  },
+  "system_architecture": {
+    "ingestion": "Upload service (FastAPI) -> object storage (S3-compatible)",
+    "processing": "Worker (PyTorch) on GPU node -> cache heatmaps to storage",
+    "database": "PostgreSQL for metadata + Redis for queues",
+    "services": [
+      "Gateway/API",
+      "Inference worker",
+      "Metrics/Prometheus",
+      "Grafana dashboards"
+    ],
+    "pacs_bridge": "DICOMweb (WADO-RS) adapter (phase 2)"
+  },
+  "ui_requirements": {
+    "views": [
+      "Worklist with filters (date, priority, status)",
+      "Study viewer: image, heatmap overlay toggle, probabilities, notes",
+      "Reports: export PDF with embedded thumbnail and inference summary"
+    ],
+    "accessibility": [
+      "Dark mode, zoom, pan, invert LUT"
+    ]
+  },
+  "telemetry": {
+    "events": [
+      "image_uploaded",
+      "inference_completed",
+      "override_made",
+      "report_exported"
+    ],
+    "privacy": "Aggregate only; no PHI in logs"
+  },
+  "risks": [
+    {
+      "risk": "Label noise and domain shift",
+      "mitigation": "Relabel subset; use robust loss; external validation"
+    },
+    {
+      "risk": "Overreliance by clinicians",
+      "mitigation": "UI emphasizes assistive nature; requires confirmation"
+    },
+    {
+      "risk": "Regulatory constraints",
+      "mitigation": "Clear disclaimers; research-only deployment"
+    }
+  ],
+  "dependencies": [
+    "PyTorch 2.x, Torchvision",
+    "FastAPI, Uvicorn",
+    "pydicom, dicomweb-client",
+    "ONNX Runtime/TensorRT (optional)"
+  ],
+  "milestones": [
+    {
+      "name": "M0 – PRD sign-off",
+      "due": "2025-08-25"
+    },
+    {
+      "name": "M1 – Data pipeline & EDA",
+      "due": "2025-09-05"
+    },
+    {
+      "name": "M2 – Baseline model (ResNet-50)",
+      "due": "2025-09-15"
+    },
+    {
+      "name": "M3 – Explainability & calibration",
+      "due": "2025-09-22"
+    },
+    {
+      "name": "M4 – UI + API alpha",
+      "due": "2025-10-01"
+    },
+    {
+      "name": "M5 – External validation",
+      "due": "2025-10-10"
+    },
+    {
+      "name": "M6 – Pilot release (research-only)",
+      "due": "2025-10-20"
+    }
+  ],
+  "acceptance_criteria": [
+    "AUROC ≥ 0.92 (Pneumonia) and ≥ 0.90 (TB) on internal test set",
+    "Sensitivity ≥ 0.90 at specificity ≥ 0.85 (per class)",
+    "Reader study shows ≥15% reduction in time-to-flag",
+    "All privacy and audit requirements implemented"
+  ],
+  "api_contract": {
+    "post_/v1/infer": {
+      "request": {
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "multipart/form-data"
+        },
+        "body": {
+          "file": "image|dicom",
+          "patient_age": "optional",
+          "view": "PA|AP|unknown"
+        }
+      },
+      "response": {
+        "200": {
+          "classes": [
+            "normal",
+            "pneumonia",
+            "tb"
+          ],
+          "probabilities": {
+            "normal": 0.12,
+            "pneumonia": 0.7,
+            "tb": 0.18
+          },
+          "calibrated": true,
+          "heatmap_url": "https://storage/heatmaps/abc.png",
+          "model_version": "resnet50_v1.2",
+          "inference_ms": 740
+        },
+        "4xx/5xx": "Standard error schema"
+      }
+    }
+  },
+  "model_card_outline": {
+    "intended_use": "Assist radiologists in triage; not for diagnosis",
+    "factors": [
+      "View position",
+      "Scanner vendor",
+      "Age group"
+    ],
+    "metrics": [
+      "AUROC",
+      "F1",
+      "ECE"
+    ],
+    "ethical_considerations": [
+      "False negatives impact",
+      "Human oversight"
+    ],
+    "caveats": [
+      "Label noise; limited pediatric coverage"
+    ]
+  }
+}
