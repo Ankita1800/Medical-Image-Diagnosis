@@ -5,6 +5,7 @@ import time
 import logging
 
 from .schemas import InferenceResponse, HealthResponse
+from .metrics import METRICS
 
 logger = logging.getLogger("cxr_api")
 logging.basicConfig(level=logging.INFO)
@@ -29,9 +30,12 @@ async def infer(
 
 	start = time.time()
 	logger.info("image_uploaded", extra={"filename": file.filename, "content_type": file.content_type})
+	METRICS.inc("image_uploaded")
 
 	probabilities = {"normal": 0.12, "pneumonia": 0.7, "tb": 0.18}
 	inference_ms = int((time.time() - start) * 1000)
+	METRICS.observe_latency_ms(inference_ms)
+	METRICS.inc("inference_completed")
 
 	logger.info("inference_completed", extra={"inference_ms": inference_ms})
 
@@ -42,3 +46,8 @@ async def infer(
 		model_version="resnet50_v1.2",
 		inference_ms=inference_ms,
 	)
+
+
+@app.get("/v1/metrics")
+async def get_metrics() -> dict:
+	return METRICS.snapshot()

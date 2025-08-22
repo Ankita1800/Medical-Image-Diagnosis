@@ -10,6 +10,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 - Health: GET http://localhost:8000/v1/health
 - Infer: POST http://localhost:8000/v1/infer (multipart form: file, patient_age [opt], view)
+- Metrics: GET http://localhost:8000/v1/metrics
 
 ## Batch CLI
 
