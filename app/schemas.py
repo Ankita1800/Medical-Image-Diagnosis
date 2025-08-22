@@ -19,3 +19,4 @@ class InferenceResponse(BaseModel):
 	heatmap_url: Optional[str] = None
 	model_version: str
 	inference_ms: int
+	preview_url: Optional[str] = None
